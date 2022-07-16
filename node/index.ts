@@ -3,13 +3,11 @@ import net from 'net';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { PgConnector } from "./client.js";
-import { NextFunction } from 'connect';
 import { stringify } from 'querystring';
-import { Socket } from 'dgram';
 import { networkInterfaces } from 'os';
 import uuid_apikey from 'uuid-apikey';
 import jwt from 'jsonwebtoken';
-import fs from 'fs';
+import bcrypt from 'bcrypt';
 
 import codesJson from '../codes.json';
 const client_port = 8080;
@@ -46,7 +44,7 @@ app.get('/game/stock/:symbol', (req, res) => {
             // TODO :: LOG EROR?res.status(400).write(err);
         });
         } else {
-            res.status(401).send(codesJson[resultcode as keyof typeof codesJson]);
+            res.status(404).send(codesJson[resultcode as keyof typeof codesJson]);
         } 
     });
     
@@ -56,6 +54,10 @@ app.get('/game/stock/:symbol', (req, res) => {
     SendMsgtoServer(user_chkmsg, socket);
     
 });
+app.post('/user', async (req, res)=>{
+    const user = req.body.name
+    const password = await bcrypt.hash(req.body.password, 10);
+})
 
 app.post('/user', (req, res) => {
     const user = req.body.name
@@ -83,10 +85,19 @@ app.post('/game/stocknum/:num/', (req, res) => {
     const create_game = `{"type": "003", "stock_num":${stock_num}}`;
     const socket = new net.Socket;
     
-    // TODO : only send request to create game, return response earlier?
+    // TODO : async using http polling?
     socket.addListener('data', (data) =>{
-        res.status(202).send(data);
+        const result = JSON.parse(data.toString())["result"];
+        const resultcode:string = "0".concat(result.toString()); // better code system for this...
+        
+        if (result==53){
+            res.status(202).send(codesJson[resultcode as keyof typeof codesJson].concat(`, token:${apikey}`));
+        }else {
+            res.status(500).send(codesJson[resultcode as keyof typeof codesJson]);
+        }
     })
+
+    
     socket.addListener('error', (err)=>{
         res.status(400).write(err)
     })
