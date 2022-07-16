@@ -8,6 +8,8 @@ import { networkInterfaces } from 'os';
 import uuid_apikey from 'uuid-apikey';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import dotenv from 'dotenv/config';
 
 import codesJson from '../codes.json';
 const client_port = 8080;
@@ -20,67 +22,59 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-let pgConnector = new PgConnector();
+const pgConnector = new PgConnector();
+let refreshTokens = []; 
 // Broswer handler 
 
-app.get('/', (req, res) => {
-    res.json({message: "Hello from server!" });
-});
-
 app.get('/game/stock/:symbol', (req, res) => {
-    const user_chkmsg = `{"type": "004", "user":"${req.body.user}", "token":"${req.body.token}"}`;
-    const socket = new net.Socket;
-    socket.addListener('data', (data) =>{
-        const result = JSON.parse(data.toString())["result"];
-        const resultcode:string = "0".concat(result.toString()); // better code system for this...
-        
-        if (result == 54){
-            const queryPromise = pgConnector.queryStock(req.params.symbol,"close");
-            queryPromise.then(data => {
-            const qresult = { rows : data["rows"] };
-            res.status(200).json(qresult);
-        }).catch(err => { // classify errors!
-            res.status(400).write("INTERNAL ERROR");
-            // TODO :: LOG EROR?res.status(400).write(err);
-        });
-        } else {
-            res.status(404).send(codesJson[resultcode as keyof typeof codesJson]);
-        } 
-    });
-    
-    socket.addListener('error', (err)=>{
-        res.status(400).write(err);
-    })
-    SendMsgtoServer(user_chkmsg, socket);
-    
-});
-app.post('/user', async (req, res)=>{
-    const user = req.body.name
-    const password = await bcrypt.hash(req.body.password, 10);
-})
+    const authheader = req.headers["authorization"];
+    const valid = checkToken(authheader);
+    if(valid.length() == 0){
+        res.status(401).send("INVALID AUTHENTICATION"); // use codes?
+    }
 
-app.post('/user', (req, res) => {
-    const user = req.body.name
-    const apikey = uuid_apikey.create().apiKey;
     const socket = new net.Socket;
-    const user_createmsg = `{"type": "002", "user":"${user}", "token":"${apikey}"}`;
+    const queryPromise = pgConnector.queryStock(req.params.symbol,"close");
+    queryPromise.then(data => {
+    const qresult = { rows : data["rows"] };
+        res.status(200).json(qresult);
+    }).catch(err => { // classify errors!
+        res.status(400).write("INTERNAL ERROR");
+        // TODO :: LOG ERROR?res.status(400).write(err);
+    });
+});
+
+// User Login
+app.post('/user', (req, res)=>{
+    const user = req.body.name
+    const password = bcrypt.hash(req.body.password, 10);
+    const socket = new net.Socket;
+    const user_createmsg = `{"type": "002", "user":"${user}", "password":"${password}"}`;
     socket.addListener('data', (data) =>{
         const result = JSON.parse(data.toString())["result"];
         const resultcode:string = "0".concat(result.toString()); // better code system for this...
-        
-        if (result==52){
-            res.status(202).send(codesJson[resultcode as keyof typeof codesJson].concat(`, token:${apikey}`));
+        if (result < 60){
+            res.status(202).send(codesJson[resultcode as keyof typeof codesJson]);
+            const accessTk = generateAccessToken(req.body.name);
+            const refreshTK = generateRefreshToken(req.body.name);
+            res.status(202).json({"accessToken": accessTk, "refreshToken": refreshTK});
         }else {
             res.status(500).send(codesJson[resultcode as keyof typeof codesJson]);
         }
-    })
+    });
     socket.addListener('error', (err)=>{
         res.status(400).write(err)
     })
     SendMsgtoServer(user_createmsg, socket);
-})
+});
 
 app.post('/game/stocknum/:num/', (req, res) => {
+    const authheader = req.headers["authorization"];
+    const valid = checkToken(authheader);
+    if(valid.length() == 0){
+        res.status(401).send("INVALID AUTHENTICATION"); // use codes?
+    }; // TODO :: Middleware validity check.
+
     const stock_num = req.params.num
     const create_game = `{"type": "003", "stock_num":${stock_num}}`;
     const socket = new net.Socket;
@@ -91,7 +85,7 @@ app.post('/game/stocknum/:num/', (req, res) => {
         const resultcode:string = "0".concat(result.toString()); // better code system for this...
         
         if (result==53){
-            res.status(202).send(codesJson[resultcode as keyof typeof codesJson].concat(`, token:${apikey}`));
+            res.status(202).send(codesJson[resultcode as keyof typeof codesJson]);
         }else {
             res.status(500).send(codesJson[resultcode as keyof typeof codesJson]);
         }
@@ -115,7 +109,7 @@ app.listen(web_port, () => {
 });
 
 
-export function SendMsgtoServer(msg: string, socket:net.Socket){
+function SendMsgtoServer(msg: string, socket:net.Socket){
     socket.connect(client_port, '127.0.0.1', () => {
         console.log('Connected');
         socket.write(msg);
@@ -132,3 +126,29 @@ export function SendMsgtoServer(msg: string, socket:net.Socket){
         console.log('client socket closed');
     });
 }
+
+
+// Tokens
+function generateAccessToken(username:string):string{ // TODO : HOW TO CONFIRM envfile
+    return jwt.sign({username}, process.env.ACCESS_TOKEN_SECRET!, { expiresIn : "15m"});
+}
+
+function generateRefreshToken(username:string):string{
+    const refreshTK = jwt.sign({username}, process.env.REFRESH_TOKEN_SECRET!, { expiresIn : "20m"});
+    refreshTokens.push(refreshTK);
+    return refreshTK;
+}
+
+// auth
+function checkToken(token:string | undefined): string | jwt.JwtPayload{
+    if(token === undefined){
+        return "";
+    }
+
+    try{
+        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!);
+        return decoded;    
+    } catch (err) {
+        return "";
+    }
+} 
