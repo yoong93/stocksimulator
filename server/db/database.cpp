@@ -14,16 +14,22 @@ int Database::PostgresConnect::csv_to_db(std::string filepath){
     return send_sql(sql);   
 }
 
-int Database::PostgresConnect::check_user(std::string username, std::string token){
-    std::string sql = "SELECT * FROM users WHERE name=\'" + username +"\' and token=\'" + token + "\';";
+int Database::PostgresConnect::check_user(std::string username, std::string password){
+    std::string sql = "SELECT * FROM players WHERE name=\'" + username +"\' and password=\'" + password + "\';";
     int result = send_sql(sql);
     if(result < 0){
         return -1; 
     } else {
         return r.size(); // 0 if not found > 1 if found
     }
-    
 }
+
+int Database::PostgresConnect::check_userdup(std::string username){
+    std::string sql = "SELECT COUNT(name) FROM players WHERE name=\'" + username + "\';";
+    int result = send_sql(sql);
+    return result > 0;
+}
+
 int Database::PostgresConnect::send_sql(std::string sql){
     try{
         pqxx::connection c{
@@ -43,7 +49,7 @@ int Database::PostgresConnect::send_sql(std::string sql){
     }
     return 1;
 }
-int Database::PostgresConnect::create_user(std::string user, std::string token){
-    std::string sql = "INSERT INTO users (name, token, money) VALUES (\'" + user + "\', \'" + token + "\', 0);";
+int Database::PostgresConnect::create_user(std::string user, std::string password){
+    std::string sql = "INSERT INTO players (name, password, money) VALUES (\'" + user + "\', \'" + password + "\', 0);";
     return send_sql(sql);   
 }

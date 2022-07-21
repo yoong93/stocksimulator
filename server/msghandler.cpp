@@ -60,15 +60,20 @@ int MsgHandler::processMessage(){
             break;
         
         case 2:
-            if(Database::PostgresConnect::create_user(m_jmsg["user"], m_jmsg["token"])){
+            if(Database::PostgresConnect::check_userdup(m_jmsg["user"])){
+                // duplicate exists
+                result = 62;
+            } else {
+                if(Database::PostgresConnect::create_user(m_jmsg["user"], m_jmsg["password"])){
                 result = 52; // user create success
             } else{
                 result = 99;
             }
+            
+            
             break;
 
         case 3:
-            ;
             int i;
             result = 053; // game create success, if fails, set codes later.
             downloader = std::make_unique<AlphaVantage::DataDownloader>();

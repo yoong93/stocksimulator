@@ -12,6 +12,7 @@ namespace Database
             static int csv_to_db(std::string);
             static int create_user(std::string, std::string);
             static int check_user(std::string, std::string);
+            static int check_userdup(std::string);
         private:
             static pqxx::result r;
             static int send_sql(std::string);
